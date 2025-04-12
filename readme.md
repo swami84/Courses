@@ -14,7 +14,7 @@ A practical course on **Graph Neural Networks** based on the book:
 
 ### 🔗 Resources
 - [Official Book Link](https://www.packtpub.com/en-us/product/hands-on-graph-neural-networks-using-python-9781804617526) (Packt Publishing)
-- [Course Materials](./Graph%20Neural%20Networks/) (Notebooks, slides, datasets)
+- [Course Materials](./graph_nn/) (Notebooks, slides, datasets)
 
 ### 🛠 Prerequisites
 - Python & PyTorch basics.

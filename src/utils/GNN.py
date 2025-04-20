@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.utils import to_dense_adj
+from torch_geometric.nn import GCNConv
 
 
 class BaseGNN(nn.Module):
@@ -120,7 +121,6 @@ class VanillaGNN(nn.Module):
         
         # Hidden layers
         for _ in range(self.num_layers - 2,0,-1):
-            print(_)
             
             self.layers.append(VanillaGNNLayer((dim_h* 2*(_)), dim_h * (_)))
         
@@ -189,3 +189,98 @@ class VanillaGNN(nn.Module):
             acc = self.accuracy(out[data.test_mask].argmax(dim=1), 
                               data.y[data.test_mask])
         return acc.item()
+    
+class GCNClassifier(nn.Module):
+    def __init__(self, dim_in, dim_h, dim_out, num_layers=2, dropout=0.5):
+        """
+        Flexible GCN classifier with configurable layers
+        
+        Args:
+            dim_in: Input feature dimension
+            dim_h: Hidden layer dimension
+            dim_out: Output dimension (number of classes)
+            num_layers: Total number of layers (minimum 2)
+            dropout: Dropout probability (0 = no dropout)
+        """
+        super().__init__()
+        self.num_layers = max(num_layers, 2)  # Ensure at least input and output layers
+        self.dropout = dropout
+        
+        # Create GCN layers
+        self.convs = nn.ModuleList()
+        
+        # Input layer
+        self.convs.append(GCNConv(dim_in, dim_h))
+        
+        if num_layers >2:
+            self.layers = nn.ModuleList([GCNConv(dim_in, dim_h* 2*(num_layers - 2))])
+        else:
+            self.layers = nn.ModuleList([GCNConv(dim_in, dim_h)])
+        
+        # Hidden layers
+        for _ in range(self.num_layers - 2,0,-1):
+            
+            self.layers.append(GCNConv((dim_h* 2*(_)), dim_h * (_)))
+
+        
+        # Output layer
+        self.convs.append(GCNConv(dim_h, dim_out))
+        
+        # Dropout layer
+        self.dropout_layer = nn.Dropout(p=dropout)
+        
+    def accuracy(self, y_pred, y_true):
+        return (y_pred == y_true).float().mean()
+    
+    def forward(self, x, edge_index):
+        # Input layer
+        h = self.convs[0](x, edge_index)
+        h = F.relu(h)
+        h = self.dropout_layer(h)
+        
+        # Hidden layers
+        for conv in self.convs[1:-1]:
+            h = conv(h, edge_index)
+            h = F.relu(h)
+            h = self.dropout_layer(h)
+        
+        # Output layer
+        h = self.convs[-1](h, edge_index)
+        return F.log_softmax(h, dim=1)
+    
+    def fit(self, data, epochs=200, verbose=True):
+        criterion = nn.CrossEntropyLoss()
+        optimizer = torch.optim.Adam(self.parameters(), 
+                                   lr=0.01, 
+                                   weight_decay=5e-4)
+        
+        self.train()
+        for epoch in range(epochs + 1):
+            optimizer.zero_grad()
+            out = self(data.x, data.edge_index)
+            loss = criterion(out[data.train_mask], data.y[data.train_mask])
+            acc = self.accuracy(out[data.train_mask].argmax(dim=1), 
+                              data.y[data.train_mask])
+            loss.backward()
+            optimizer.step()
+            
+            if verbose and (epoch % 20 == 0 or epoch == epochs):
+                with torch.no_grad():
+                    val_out = self(data.x, data.edge_index)
+                    val_loss = criterion(val_out[data.val_mask], data.y[data.val_mask])
+                    val_acc = self.accuracy(val_out[data.val_mask].argmax(dim=1), 
+                                          data.y[data.val_mask])
+                    
+                    print(f'Epoch {epoch:>3} | '
+                          f'Loss: {loss.item():.3f} | '
+                          f'Acc: {acc.item()*100:5.2f}% | '
+                          f'Val Loss: {val_loss.item():.3f} | '
+                          f'Val Acc: {val_acc.item()*100:5.2f}%')
+    
+    @torch.no_grad()
+    def test(self, data):
+        self.eval()
+        out = self(data.x, data.edge_index)
+        pred = out.argmax(dim=1)
+        test_acc = self.accuracy(pred[data.test_mask], data.y[data.test_mask])
+        return test_acc.item()

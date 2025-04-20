@@ -212,25 +212,21 @@ class GCNClassifier(nn.Module):
         # Input layer
         self.convs.append(GCNConv(dim_in, dim_h))
         
-        if num_layers >2:
-            self.layers = nn.ModuleList([GCNConv(dim_in, dim_h* 2*(num_layers - 2))])
-        else:
-            self.layers = nn.ModuleList([GCNConv(dim_in, dim_h)])
-        
+
         # Hidden layers
         for _ in range(self.num_layers - 2,0,-1):
             
-            self.layers.append(GCNConv((dim_h* 2*(_)), dim_h * (_)))
+            self.convs.append(GCNConv(dim_h, dim_h))
 
         
         # Output layer
-        self.convs.append(GCNConv(dim_h, dim_out))
+        self.convs.append(nn.Linear(dim_h, dim_out))
         
         # Dropout layer
         self.dropout_layer = nn.Dropout(p=dropout)
         
     def accuracy(self, y_pred, y_true):
-        return (y_pred == y_true).float().mean()
+        return (y_pred == y_true).sum().float() / len(y_true)
     
     def forward(self, x, edge_index):
         # Input layer
